@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Simple Quest Board</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            max-width: 600px; 
+            margin: 0 auto; 
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: white;
+        }
+        .card { 
+            background: white; 
+            color: black;
+            padding: 20px; 
+            margin: 10px 0; 
+            border-radius: 10px; 
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        button { 
+            background: #4CAF50; 
+            color: white; 
+            padding: 10px 20px; 
+            border: none; 
+            border-radius: 5px; 
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:disabled { 
+            background: #cccccc; 
+            cursor: not-allowed; 
+        }
+        input { 
+            padding: 10px; 
+            width: 100%; 
+            margin: 5px 0; 
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .score { 
+            font-size: 2em; 
+            font-weight: bold; 
+            color: #4CAF50;
+        }
+    </style>
+</head>
+<body>
+    <h1>🎯 Simple Quest Board</h1>
+    
+    <div id="connectSection" class="card">
+        <button onclick="connectWallet()">Connect Wallet</button>
+    </div>
+
+    <div id="app" style="display:none">
+        <div class="card">
+            <h3>Your Points: <span id="points" class="score">0</span></h3>
+            <p>Connected: <span id="walletAddress"></span></p>
+        </div>
+
+        <div class="card">
+            <h3>✅ Daily Check-in</h3>
+            <p>Earn 10 points every 24 hours</p>
+            <button id="checkinBtn" onclick="checkIn()">Check In</button>
+            <p id="checkinStatus"></p>
+        </div>
+
+        <div class="card">
+            <h3>👥 Add Referral</h3>
+            <p>Get 50 points for each friend</p>
+            <input type="text" id="referralAddress" placeholder="0x...">
+            <button onclick="addReferral()">Add Referral</button>
+        </div>
+    </div>
+
+    <script>
+        // ЗАМЕНИТЕ НА АДРЕС ВАШЕГО КОНТРАКТА
+        const CONTRACT_ADDRESS = "0xdB940894926DB9D7d6041a107fFBbaf311695151"; 
+        const CONTRACT_ABI = [
+            {
+                "inputs": [],
+                "name": "checkIn",
+                "outputs": [],
+                "stateMutability": "nonpayable",
+                "type": "function"
+            },
+            {
+                "inputs": [
+                    {"internalType": "address", "name": "referral", "type": "address"}
+                ],
+                "name": "addReferral",
+                "outputs": [],
+                "stateMutability": "nonpayable",
+                "type": "function"
+            },
+            {
+                "inputs": [],
+                "name": "getMyPoints",
+                "outputs": [
+                    {"internalType": "uint256", "name": "", "type": "uint256"}
+                ],
+                "stateMutability": "view",
+                "type": "function"
+            },
+            {
+                "inputs": [],
+                "name": "canICheckIn",
+                "outputs": [
+                    {"internalType": "bool", "name": "", "type": "bool"}
+                ],
+                "stateMutability": "view",
+                "type": "function"
+            },
+            {
+                "inputs": [{"internalType": "address", "name": "", "type": "address"}],
+                "name": "userPoints",
+                "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}],
+                "stateMutability": "view",
+                "type": "function"
+            }
+        ];
+
+        let provider;
+        let signer;
+        let contract;
+
+        async function connectWallet() {
+            if (typeof window.ethereum !== 'undefined') {
+                try {
+                    // Запрос подключения аккаунта
+                    await window.ethereum.request({ method: 'eth_requestAccounts' });
+                    
+                    // Создаем провайдер и подписанта
+                    provider = new ethers.BrowserProvider(window.ethereum);
+                    signer = await provider.getSigner();
+                    
+                    // Создаем экземпляр контракта
+                    contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
+                    
+                    // Показываем интерфейс
+                    document.getElementById('connectSection').style.display = 'none';
+                    document.getElementById('app').style.display = 'block';
+                    
+                    // Обновляем данные
+                    updateData();
+                    
+                } catch (error) {
+                    console.error("Error connecting:", error);
+                }
+            } else {
+                alert("Please install MetaMask!");
+            }
+        }
+
+        async function updateData() {
+            if (!contract) return;
+            
+            try {
+                const address = await signer.getAddress();
+                const points = await contract.getMyPoints();
+                const canCheckIn = await contract.canICheckIn();
+                
+                document.getElementById('points').textContent = points.toString();
+                document.getElementById('walletAddress').textContent = address;
+                
+                const checkinBtn = document.getElementById('checkinBtn');
+                const checkinStatus = document.getElementById('checkinStatus');
+                
+                if (canCheckIn) {
+                    checkinBtn.disabled = false;
+                    checkinBtn.textContent = "Check In (+10 points)";
+                    checkinStatus.textContent = "Ready to check in!";
+                    checkinStatus.style.color = "green";
+                } else {
+                    checkinBtn.disabled = true;
+                    checkinBtn.textContent = "Come Back Tomorrow";
+                    checkinStatus.textContent = "You already checked in today";
+                    checkinStatus.style.color = "red";
+                }
+                
+            } catch (error) {
+                console.error("Error updating data:", error);
+            }
+        }
+
+        async function checkIn() {
+            try {
+                const tx = await contract.checkIn();
+                document.getElementById('checkinStatus').textContent = "Waiting for confirmation...";
+                
+                await tx.wait();
+                document.getElementById('checkinStatus').textContent = "Check-in successful!";
+                
+                updateData();
+                
+            } catch (error) {
+                console.error("Error checking in:", error);
+                alert("Error: " + error.message);
+            }
+        }
+
+        async function addReferral() {
+            const referralAddress = document.getElementById('referralAddress').value;
+            
+            if (!ethers.isAddress(referralAddress)) {
+                alert("Please enter a valid address");
+                return;
+            }
+            
+            try {
+                const tx = await contract.addReferral(referralAddress);
+                await tx.wait();
+                alert("Referral added successfully!");
+                document.getElementById('referralAddress').value = "";
+                updateData();
+                
+            } catch (error) {
+                console.error("Error adding referral:", error);
+                alert("Error: " + error.message);
+            }
+        }
+
+        // Автоматическое обновление данных при изменении аккаунта
+        if (window.ethereum) {
+            window.ethereum.on('accountsChanged', () => {
+                window.location.reload();
+            });
+        }
+    </script>
+    
+    <!-- Подключаем ethers.js -->
+    <script src="https://cdn.ethers.io/lib/ethers-5.7.umd.min.js" type="application/javascript"></script>
+</body>
+</html>
