@@ -55,6 +55,9 @@
         .success { color: green; font-weight: bold; }
         .loading { color: blue; font-weight: bold; }
     </style>
+    
+    <!-- Подключаем ethers.js через UNPKG (альтернативный CDN) -->
+    <script src="https://unpkg.com/ethers@5.7.2/dist/ethers.umd.min.js"></script>
 </head>
 <body>
     <h1>🎯 Base Quest Board</h1>
@@ -62,7 +65,7 @@
     <!-- Информация о загрузке -->
     <div id="loadingInfo" class="card">
         <h2>Loading application...</h2>
-        <p id="loadStatus">Initializing...</p>
+        <p id="loadStatus">Checking dependencies...</p>
     </div>
 
     <!-- Секция подключения -->
@@ -142,7 +145,6 @@
         ];
 
         let provider, signer, contract;
-        let ethersLoaded = false;
 
         // Функция для обновления статуса загрузки
         function updateLoadStatus(message) {
@@ -150,71 +152,71 @@
             console.log(message);
         }
 
-        // Проверяем загрузку ethers.js
-        function checkEthersLoaded() {
-            if (typeof ethers !== 'undefined') {
-                updateLoadStatus('✅ ethers.js loaded successfully');
-                ethersLoaded = true;
-                initializeApp();
-            } else {
-                updateLoadStatus('❌ ethers.js not loaded, retrying...');
-                setTimeout(checkEthersLoaded, 1000);
+        // Проверяем загрузку всех зависимостей
+        function checkDependencies() {
+            if (typeof ethers === 'undefined') {
+                updateLoadStatus('❌ ethers.js not loaded yet...');
+                setTimeout(checkDependencies, 1000);
+                return;
             }
+
+            if (typeof window.ethereum === 'undefined') {
+                updateLoadStatus('❌ MetaMask not detected');
+                showMetaMaskError();
+                return;
+            }
+
+            updateLoadStatus('✅ All dependencies loaded');
+            initializeApp();
         }
 
-        // Инициализация приложения после загрузки ethers
+        function showMetaMaskError() {
+            document.getElementById('loadingInfo').innerHTML = `
+                <h2>MetaMask Required</h2>
+                <p>Please install MetaMask to use this application.</p>
+                <a href="https://metamask.io/download.html" target="_blank">
+                    <button>Install MetaMask</button>
+                </a>
+            `;
+        }
+
+        // Инициализация приложения
         function initializeApp() {
             updateLoadStatus('🚀 Initializing application...');
             
-            // Показываем кнопку подключения
             document.getElementById('loadingInfo').classList.add('hidden');
             document.getElementById('connectSection').classList.remove('hidden');
             
-            // Проверяем автоподключение
             checkAutoConnect();
         }
 
         // Проверка автоподключения
         async function checkAutoConnect() {
-            if (typeof window.ethereum !== 'undefined') {
-                try {
-                    const accounts = await window.ethereum.request({ method: 'eth_accounts' });
-                    if (accounts.length > 0) {
-                        updateLoadStatus('🔗 Auto-connecting to wallet...');
-                        await connectWallet();
-                    }
-                } catch (error) {
-                    console.log('Auto-connect skipped:', error.message);
+            try {
+                const accounts = await window.ethereum.request({ method: 'eth_accounts' });
+                if (accounts.length > 0) {
+                    updateLoadStatus('🔗 Auto-connecting to wallet...');
+                    await connectWallet();
                 }
+            } catch (error) {
+                console.log('Auto-connect skipped');
             }
         }
 
         // Основная функция подключения
         async function connectWallet() {
-            if (!ethersLoaded) {
-                alert('Application still loading, please wait...');
-                return;
-            }
-
             updateLoadStatus('🔄 Connecting wallet...');
             
-            if (typeof window.ethereum === 'undefined') {
-                updateLoadStatus('❌ MetaMask not installed');
-                alert('Please install MetaMask!');
-                return;
-            }
-
             try {
-                // Запрашиваем подключение аккаунтов
                 const accounts = await window.ethereum.request({ 
                     method: 'eth_requestAccounts' 
                 });
                 
-                updateLoadStatus('✅ Wallet connected: ' + accounts[0]);
+                updateLoadStatus('✅ Wallet connected: ' + accounts[0].slice(0, 8) + '...');
 
-                // Создаем провайдер
-                provider = new ethers.BrowserProvider(window.ethereum);
-                signer = await provider.getSigner();
+                // Используем правильные классы из ethers v5
+                provider = new ethers.providers.Web3Provider(window.ethereum);
+                signer = provider.getSigner();
                 
                 const address = await signer.getAddress();
                 const network = await provider.getNetwork();
@@ -228,11 +230,10 @@
                 document.getElementById('walletAddress').textContent = 
                     `${address.slice(0, 8)}...${address.slice(-6)}`;
                 document.getElementById('networkName').textContent = 
-                    network.chainId === 8453n ? 'Base Mainnet' : 'Unknown Network';
+                    network.chainId === 8453 ? 'Base Mainnet' : 'Chain ID: ' + network.chainId;
 
                 updateLoadStatus('🎉 Application ready!');
 
-                // Обновляем данные
                 await updateData();
 
             } catch (error) {
@@ -311,7 +312,7 @@
                 return;
             }
 
-            if (!ethers.isAddress(referralAddress)) {
+            if (!ethers.utils.isAddress(referralAddress)) {
                 referralStatus.textContent = "Status: Invalid Ethereum address";
                 referralStatus.className = "error";
                 return;
@@ -349,18 +350,27 @@
             contract = null;
         }
 
-        // Запускаем проверку загрузки ethers.js при загрузке страницы
+        // Обработчики событий MetaMask
+        if (typeof window.ethereum !== 'undefined') {
+            window.ethereum.on('accountsChanged', (accounts) => {
+                if (accounts.length === 0) {
+                    disconnectWallet();
+                } else {
+                    window.location.reload();
+                }
+            });
+
+            window.ethereum.on('chainChanged', () => {
+                window.location.reload();
+            });
+        }
+
+        // Запускаем при загрузке страницы
         window.addEventListener('load', function() {
-            updateLoadStatus('📦 Loading ethers.js library...');
-            checkEthersLoaded();
+            updateLoadStatus('📦 Checking dependencies...');
+            checkDependencies();
         });
 
-    </script>
-
-    <!-- Подключаем ethers.js через CDN -->
-    <script src="https://cdn.ethers.io/lib/ethers-5.7.umd.min.js" 
-            onload="console.log('ethers.js loaded successfully')"
-            onerror="console.log('Failed to load ethers.js')">
     </script>
 </body>
 </html>
