@@ -54,9 +54,17 @@
         .error { color: red; font-weight: bold; }
         .success { color: green; font-weight: bold; }
         .loading { color: blue; font-weight: bold; }
+        .warning { 
+            background: #fff3cd; 
+            color: #856404; 
+            padding: 10px; 
+            border-radius: 5px;
+            border: 1px solid #ffeaa7;
+            margin: 10px 0;
+        }
     </style>
     
-    <!-- Подключаем ethers.js через UNPKG (альтернативный CDN) -->
+    <!-- Подключаем ethers.js через UNPKG -->
     <script src="https://unpkg.com/ethers@5.7.2/dist/ethers.umd.min.js"></script>
 </head>
 <body>
@@ -73,6 +81,14 @@
         <h2>Connect your wallet to start earning points!</h2>
         <button onclick="connectWallet()">Connect Wallet</button>
         <p id="connectStatus"></p>
+    </div>
+
+    <!-- Предупреждение о сети -->
+    <div id="networkWarning" class="card warning hidden">
+        <h2>⚠️ Wrong Network</h2>
+        <p>Please switch to <strong>Base Mainnet</strong> to use this application.</p>
+        <button onclick="switchToBase()">Switch to Base Mainnet</button>
+        <p id="networkStatus"></p>
     </div>
 
     <!-- Основное приложение -->
@@ -105,8 +121,8 @@
     </div>
 
     <script>
-        // 🔧 КОНФИГУРАЦИЯ - ЗАМЕНИТЕ НА РЕАЛЬНЫЙ АДРЕС!
-        const CONTRACT_ADDRESS = "0x1234567890123456789012345678901234567890"; // ЗАМЕНИТЕ!
+        // 🔧 КОНФИГУРАЦИЯ - ОБЯЗАТЕЛЬНО ЗАМЕНИТЕ!
+        const CONTRACT_ADDRESS = "0xdB940894926DB9D7d6041a107fFBbaf311695151"; // ЗАМЕНИТЕ НА РЕАЛЬНЫЙ!
         const CONTRACT_ABI = [
             {
                 "inputs": [],
@@ -144,16 +160,83 @@
             }
         ];
 
+        // Конфигурация Base Mainnet
+        const BASE_MAINNET_CONFIG = {
+            chainId: "0x2105",
+            chainName: "Base Mainnet",
+            rpcUrls: ["https://mainnet.base.org"],
+            blockExplorerUrls: ["https://basescan.org"],
+            nativeCurrency: {
+                name: "Ethereum",
+                symbol: "ETH",
+                decimals: 18
+            }
+        };
+
         let provider, signer, contract;
 
-        // Функция для обновления статуса загрузки
         function updateLoadStatus(message) {
             document.getElementById('loadStatus').textContent = message;
             console.log(message);
         }
 
+        function showNetworkWarning() {
+            document.getElementById('connectSection').classList.add('hidden');
+            document.getElementById('app').classList.add('hidden');
+            document.getElementById('networkWarning').classList.remove('hidden');
+        }
+
+        function hideNetworkWarning() {
+            document.getElementById('networkWarning').classList.add('hidden');
+        }
+
+        // Функция переключения на Base Mainnet
+        async function switchToBase() {
+            try {
+                document.getElementById('networkStatus').textContent = "Switching network...";
+                document.getElementById('networkStatus').className = "loading";
+                
+                await window.ethereum.request({
+                    method: 'wallet_switchEthereumChain',
+                    params: [{ chainId: BASE_MAINNET_CONFIG.chainId }]
+                });
+                
+                // Если переключение успешно, перезагружаем страницу
+                window.location.reload();
+                
+            } catch (switchError) {
+                // Если сеть не добавлена, добавляем ее
+                if (switchError.code === 4902) {
+                    try {
+                        await window.ethereum.request({
+                            method: 'wallet_addEthereumChain',
+                            params: [BASE_MAINNET_CONFIG]
+                        });
+                        window.location.reload();
+                    } catch (addError) {
+                        document.getElementById('networkStatus').textContent = "Error adding network: " + addError.message;
+                        document.getElementById('networkStatus').className = "error";
+                    }
+                } else {
+                    document.getElementById('networkStatus').textContent = "Error switching network: " + switchError.message;
+                    document.getElementById('networkStatus').className = "error";
+                }
+            }
+        }
+
+        // Проверяем сеть
+        async function checkNetwork() {
+            try {
+                const chainId = await window.ethereum.request({ method: 'eth_chainId' });
+                return chainId === BASE_MAINNET_CONFIG.chainId;
+            } catch (error) {
+                console.error('Error checking network:', error);
+                return false;
+            }
+        }
+
         // Проверяем загрузку всех зависимостей
-        function checkDependencies() {
+        async function checkDependencies() {
             if (typeof ethers === 'undefined') {
                 updateLoadStatus('❌ ethers.js not loaded yet...');
                 setTimeout(checkDependencies, 1000);
@@ -163,6 +246,14 @@
             if (typeof window.ethereum === 'undefined') {
                 updateLoadStatus('❌ MetaMask not detected');
                 showMetaMaskError();
+                return;
+            }
+
+            // Проверяем сеть
+            const isBaseNetwork = await checkNetwork();
+            if (!isBaseNetwork) {
+                updateLoadStatus('❌ Please switch to Base Mainnet');
+                showNetworkWarning();
                 return;
             }
 
@@ -208,13 +299,19 @@
             updateLoadStatus('🔄 Connecting wallet...');
             
             try {
+                // Проверяем сеть перед подключением
+                const isBaseNetwork = await checkNetwork();
+                if (!isBaseNetwork) {
+                    showNetworkWarning();
+                    return;
+                }
+
                 const accounts = await window.ethereum.request({ 
                     method: 'eth_requestAccounts' 
                 });
                 
                 updateLoadStatus('✅ Wallet connected: ' + accounts[0].slice(0, 8) + '...');
 
-                // Используем правильные классы из ethers v5
                 provider = new ethers.providers.Web3Provider(window.ethereum);
                 signer = provider.getSigner();
                 
@@ -229,8 +326,7 @@
                 document.getElementById('app').classList.remove('hidden');
                 document.getElementById('walletAddress').textContent = 
                     `${address.slice(0, 8)}...${address.slice(-6)}`;
-                document.getElementById('networkName').textContent = 
-                    network.chainId === 8453 ? 'Base Mainnet' : 'Chain ID: ' + network.chainId;
+                document.getElementById('networkName').textContent = 'Base Mainnet';
 
                 updateLoadStatus('🎉 Application ready!');
 
@@ -270,8 +366,9 @@
 
             } catch (error) {
                 console.error('Error updating data:', error);
-                document.getElementById('checkinStatus').textContent = "Status: Error loading data";
+                document.getElementById('checkinStatus').textContent = "Status: Error loading contract data";
                 document.getElementById('checkinStatus').className = "error";
+                document.getElementById('points').textContent = "Error";
             }
         }
 
@@ -360,8 +457,12 @@
                 }
             });
 
-            window.ethereum.on('chainChanged', () => {
-                window.location.reload();
+            window.ethereum.on('chainChanged', (chainId) => {
+                if (chainId === BASE_MAINNET_CONFIG.chainId) {
+                    window.location.reload();
+                } else {
+                    showNetworkWarning();
+                }
             });
         }
 
